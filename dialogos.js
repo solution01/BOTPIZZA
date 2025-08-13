@@ -42,6 +42,7 @@ async function handleMensagem(sock, msg) {
       rowId: 'sabor calabresa',
       frase: 'A clássica que nunca decepciona!',
       preco: 45.0,
+      tipoPizza: 'salgada'
     },
     {
       title: 'Frango com Catupiry R$ 47,00',
@@ -50,6 +51,7 @@ async function handleMensagem(sock, msg) {
       rowId: 'sabor frango',
       frase: 'Cremosa e irresistível!',
       preco: 47.0,
+      tipoPizza: 'salgada'
     },
     {
       title: 'Portuguesa R$ 49,00',
@@ -58,6 +60,7 @@ async function handleMensagem(sock, msg) {
       rowId: 'sabor portuguesa',
       frase: 'Uma explosão de sabores tradicionais!',
       preco: 49.0,
+      tipoPizza: 'salgada'
     },
   ];
 
@@ -69,6 +72,7 @@ async function handleMensagem(sock, msg) {
       rowId: 'sabor chocolatemorango',
       frase: 'A união perfeita do doce com o azedinho do morango!',
       preco: 52.0,
+      tipoPizza: 'doce'
     },
     {
       title: 'Prestígio R$ 50,00',
@@ -77,10 +81,11 @@ async function handleMensagem(sock, msg) {
       rowId: 'sabor prestigio',
       frase: 'Para quem ama coco e chocolate juntos!',
       preco: 50.0,
+      tipoPizza: 'doce'
     },
   ];
 
-  const bebidas = [
+ const bebidas = [
     {
       title: 'Refrigerante 2L Coca-Cola R$ 10,00',
       description: 'Refrigerante 2L Coca-Cola',
@@ -139,12 +144,19 @@ async function handleMensagem(sock, msg) {
     },
   ];
 
+
+  // Concatenar todos os sabores de pizza para facilitar a busca
+  const allPizzas = [...pizzasSalgadas, ...pizzasDoces];
+
   // Inicializar estrutura do pedido se necessário
   if (!pedidosPorUser[from]) {
     pedidosPorUser[from] = {
       etapa: 'tipo',
-      tipo: null,
-      sabor: null,
+      tipo: null, // 'salgada', 'doce', 'meio_a_meio'
+      isMeioAMeio: false,
+      meioAMeioTipo: null, // 'salgada_salgada', 'doce_doce', 'salgada_doce'
+      sabor1: null,
+      sabor2: null,
       bebida: null,
       tentativasEndereco: 0,
       jaOrientouMenu: false,
@@ -184,6 +196,7 @@ async function handleMensagem(sock, msg) {
           rows: [
             { title: 'Salgada', rowId: 'tipo salgada' },
             { title: 'Doce', rowId: 'tipo doce' },
+            { title: 'Meio a Meio', rowId: 'tipo meio a meio' }, // Nova opção
           ],
         },
       ],
@@ -198,10 +211,16 @@ async function handleMensagem(sock, msg) {
   if (pedido.etapa === 'tipo_aguardando') {
     if (text === 'tipo salgada') {
       pedido.tipo = 'salgada';
+      pedido.isMeioAMeio = false;
       pedido.etapa = 'sabor';
     } else if (text === 'tipo doce') {
       pedido.tipo = 'doce';
+      pedido.isMeioAMeio = false;
       pedido.etapa = 'sabor';
+    } else if (text === 'tipo meio a meio') { // Nova lógica para meio a meio
+      pedido.tipo = 'meio_a_meio';
+      pedido.isMeioAMeio = true;
+      pedido.etapa = 'meio_a_meio_tipo'; // Próxima etapa para meio a meio
     } else if (text.toLowerCase() === 'falar com um atendente') {
       await sock.sendMessage(from, {
         text: 'Você será transferido para um atendimento humanizado. Aguarde o contato de um atendente.',
@@ -225,7 +244,209 @@ async function handleMensagem(sock, msg) {
     }
   }
 
-  // Escolha do sabor
+  // --- Lógica para Pizza Meio a Meio ---
+  if (pedido.etapa === 'meio_a_meio_tipo') {
+    await sock.sendMessage(from, {
+      text: 'Para sua pizza meio a meio, qual será a combinação?',
+      sections: [
+        {
+          title: 'Combinações Meio a Meio',
+          rows: [
+            { title: 'Meia Salgada + Meia Salgada', rowId: 'meio_salgada_salgada' },
+            { title: 'Meia Doce + Meia Doce', rowId: 'meio_doce_doce' },
+            { title: 'Meia Salgada + Meia Doce', rowId: 'meio_salgada_doce' },
+          ],
+        },
+      ],
+      buttonText: 'Selecionar combinação',
+      headerType: 1,
+    });
+    pedido.etapa = 'meio_a_meio_aguardando_tipo';
+    return;
+  }
+
+  if (pedido.etapa === 'meio_a_meio_aguardando_tipo') {
+    if (['meio_salgada_salgada', 'meio_doce_doce', 'meio_salgada_doce'].includes(text)) {
+      pedido.meioAMeioTipo = text;
+      pedido.etapa = 'meio_a_meio_sabor1';
+    } else {
+      await sock.sendMessage(from, {
+        text: 'Opção inválida para combinação meio a meio. Por favor, selecione uma das opções fornecidas.',
+      });
+      return;
+    }
+  }
+
+  if (pedido.etapa === 'meio_a_meio_sabor1') {
+    let saboresDisponiveis = [];
+    let tituloMensagem = '';
+
+    if (pedido.meioAMeioTipo === 'meio_salgada_salgada') {
+      saboresDisponiveis = pizzasSalgadas;
+      tituloMensagem = 'Escolha o primeiro sabor de pizza salgada:';
+    } else if (pedido.meioAMeioTipo === 'meio_doce_doce') {
+      saboresDisponiveis = pizzasDoces;
+      tituloMensagem = 'Escolha o primeiro sabor de pizza doce:';
+    } else if (pedido.meioAMeioTipo === 'meio_salgada_doce') {
+      saboresDisponiveis = allPizzas; // Ambos os tipos
+      tituloMensagem = 'Escolha o primeiro sabor (Salgada ou Doce):';
+    }
+
+    const cards = saboresDisponiveis.map(pizza => ({
+      title: pizza.title,
+      image: { url: pizza.img },
+      caption: `${pizza.description}\n\n${pizza.frase}`,
+    }));
+
+    await sock.sendMessage(from, {
+      text: tituloMensagem,
+      footer: 'Veja as opções abaixo.',
+      viewOnce: true,
+      cards,
+    });
+
+    await sock.sendMessage(from, {
+      text: `Selecione o primeiro sabor da pizza:`,
+      sections: [
+        {
+          title: 'Sabores',
+          rows: saboresDisponiveis.map(pizza => ({
+            title: pizza.title,
+            description: pizza.description,
+            rowId: pizza.rowId,
+          })),
+        },
+      ],
+      buttonText: 'Selecionar sabor',
+      headerType: 1,
+    });
+    pedido.etapa = 'meio_a_meio_aguardando_sabor1';
+    return;
+  }
+
+  if (pedido.etapa === 'meio_a_meio_aguardando_sabor1') {
+    const saborEscolhido = allPizzas.find(p => p.rowId === text);
+    if (saborEscolhido) {
+      // Validação para garantir que o sabor escolhido é do tipo correto para meio a meio
+      let isValidFlavor = false;
+      if (pedido.meioAMeioTipo === 'meio_salgada_salgada' && saborEscolhido.tipoPizza === 'salgada') {
+        isValidFlavor = true;
+      } else if (pedido.meioAMeioTipo === 'meio_doce_doce' && saborEscolhido.tipoPizza === 'doce') {
+        isValidFlavor = true;
+      } else if (pedido.meioAMeioTipo === 'meio_salgada_doce') { // Qualquer sabor é válido para o primeiro
+        isValidFlavor = true;
+      }
+
+      if (isValidFlavor) {
+        pedido.sabor1 = saborEscolhido.rowId.replace('sabor ', '');
+        pedido.etapa = 'meio_a_meio_sabor2';
+      } else {
+        await sock.sendMessage(from, {
+          text: `Sabor inválido para a combinação *${pedido.meioAMeioTipo.replace('meio_', '').replace('_', ' + ')}*. Por favor, escolha um sabor apropriado.`,
+        });
+        return;
+      }
+    } else {
+      await sock.sendMessage(from, {
+        text: 'Escolha um sabor válido. Responda conforme instrução do card.',
+      });
+      return;
+    }
+  }
+
+  if (pedido.etapa === 'meio_a_meio_sabor2') {
+    let saboresDisponiveis = [];
+    let tituloMensagem = '';
+
+    if (pedido.meioAMeioTipo === 'meio_salgada_salgada') {
+      saboresDisponiveis = pizzasSalgadas;
+      tituloMensagem = 'Escolha o segundo sabor de pizza salgada:';
+    } else if (pedido.meioAMeioTipo === 'meio_doce_doce') {
+      saboresDisponiveis = pizzasDoces;
+      tituloMensagem = 'Escolha o segundo sabor de pizza doce:';
+    } else if (pedido.meioAMeioTipo === 'meio_salgada_doce') {
+      saboresDisponiveis = allPizzas.filter(pizza => pizza.rowId !== `sabor ${pedido.sabor1}`); // Exclui o primeiro sabor já escolhido
+      tituloMensagem = 'Escolha o segundo sabor (Salgada ou Doce):';
+    }
+
+    const cards = saboresDisponiveis.map(pizza => ({
+      title: pizza.title,
+      image: { url: pizza.img },
+      caption: `${pizza.description}\n\n${pizza.frase}`,
+    }));
+
+    await sock.sendMessage(from, {
+      text: tituloMensagem,
+      footer: 'Veja as opções abaixo.',
+      viewOnce: true,
+      cards,
+    });
+
+    await sock.sendMessage(from, {
+      text: `Selecione o segundo sabor da pizza:`,
+      sections: [
+        {
+          title: 'Sabores',
+          rows: saboresDisponiveis.map(pizza => ({
+            title: pizza.title,
+            description: pizza.description,
+            rowId: pizza.rowId,
+          })),
+        },
+      ],
+      buttonText: 'Selecionar sabor',
+      headerType: 1,
+    });
+    pedido.etapa = 'meio_a_meio_aguardando_sabor2';
+    return;
+  }
+
+  if (pedido.etapa === 'meio_a_meio_aguardando_sabor2') {
+    const saborEscolhido = allPizzas.find(p => p.rowId === text);
+    if (saborEscolhido) {
+      if (saborEscolhido.rowId.replace('sabor ', '') === pedido.sabor1) {
+        await sock.sendMessage(from, {
+          text: 'Você não pode escolher o mesmo sabor para as duas metades. Por favor, escolha um sabor diferente.',
+        });
+        return;
+      }
+
+      let isValidFlavor = false;
+      if (pedido.meioAMeioTipo === 'meio_salgada_salgada' && saborEscolhido.tipoPizza === 'salgada') {
+        isValidFlavor = true;
+      } else if (pedido.meioAMeioTipo === 'meio_doce_doce' && saborEscolhido.tipoPizza === 'doce') {
+        isValidFlavor = true;
+      } else if (pedido.meioAMeioTipo === 'meio_salgada_doce') {
+        // Para 'meio_salgada_doce', o segundo sabor deve ser do tipo oposto ao primeiro, se o primeiro já foi determinado.
+        // Se o primeiro foi salgada, o segundo deve ser doce, e vice-versa.
+        const sabor1Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor1}`);
+        if (sabor1Obj && sabor1Obj.tipoPizza !== saborEscolhido.tipoPizza) {
+          isValidFlavor = true;
+        } else if (!sabor1Obj) { // Se por algum motivo o sabor1 não foi encontrado, aceita qualquer um
+          isValidFlavor = true;
+        }
+      }
+
+      if (isValidFlavor) {
+        pedido.sabor2 = saborEscolhido.rowId.replace('sabor ', '');
+        pedido.etapa = 'bebida';
+      } else {
+        await sock.sendMessage(from, {
+          text: `Sabor inválido para a segunda metade da combinação *${pedido.meioAMeioTipo.replace('meio_', '').replace('_', ' + ')}*. Por favor, escolha um sabor apropriado.`,
+        });
+        return;
+      }
+    } else {
+      await sock.sendMessage(from, {
+        text: 'Escolha um sabor válido. Responda conforme instrução do card.',
+      });
+      return;
+    }
+  }
+  // --- Fim da Lógica para Pizza Meio a Meio ---
+
+
+  // Escolha do sabor (para pizza de um único sabor)
   if (pedido.etapa === 'sabor') {
     if (pedido.tipo === 'salgada') {
       const cards = pizzasSalgadas.map(pizza => ({
@@ -259,7 +480,7 @@ async function handleMensagem(sock, msg) {
 
       pedido.etapa = 'sabor_aguardando';
       return;
-    } else {
+    } else if (pedido.tipo === 'doce') { // Adicionado o else if para garantir que pizzasDoces seja chamada apenas para tipo doce
       const cardsDoces = pizzasDoces.map(pizza => ({
         title: pizza.title,
         image: { url: pizza.img },
@@ -376,17 +597,43 @@ async function handleMensagem(sock, msg) {
             'Seu pedido será enviado com o endereço informado e será verificado manualmente pelo atendente.',
         });
 
+        // Monta o resumo do pedido
+        let resumoPizza = '';
+        let precoPizza = 0;
+
+        if (pedido.isMeioAMeio) {
+            const sabor1Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor1}`);
+            const sabor2Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor2}`);
+            if (sabor1Obj && sabor2Obj) {
+                precoPizza = (sabor1Obj.preco + sabor2Obj.preco) / 2;
+                resumoPizza = `🍕 Pizza Meio a Meio:\n   - Sabor 1: ${sabor1Obj.title.replace(/ R\$ .*/, '')}\n   - Sabor 2: ${sabor2Obj.title.replace(/ R\$ .*/, '')}`;
+            }
+        } else {
+            const saborSelecionado = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor}`);
+            if (saborSelecionado) {
+                precoPizza = saborSelecionado.preco;
+                resumoPizza = `🍕 Tipo: ${pedido.tipo}\n🍽️ Sabor: ${saborSelecionado.title.replace(/ R\$ .*/, '')}`;
+            }
+        }
+
+        const bebidaSelecionada = bebidas.find(
+          b => b.rowId === `bebida ${pedido.bebida}`
+        );
+        const precoBebida = bebidaSelecionada ? bebidaSelecionada.preco : 0;
+        const valorTotal = precoPizza + precoBebida;
+
+
         // Envia resumo do pedido com aviso manual (sem Pix)
         await sock.sendMessage(from, {
           text:
-            `📝 *Resumo do seu pedido:*\n` +
-            `🍕 Tipo: ${pedido.tipo}\n` +
-            `🍽️ Sabor: ${pedido.sabor}\n` +
+            `� *Resumo do seu pedido:*\n` +
+            `${resumoPizza}\n` +
             `🥤 Bebida: ${
-              pedido.bebida === 'nenhum' ? 'Nenhuma' : pedido.bebida
+              pedido.bebida === 'nenhum' ? 'Nenhuma' : bebidaSelecionada.title.replace(/ R\$ .*/, '')
             }\n` +
             `📍 Endereço: ${pedido.endereco}\n\n` +
             `⚠️ Endereço não localizado automaticamente. Será verificado manualmente pelo atendente.\n\n` +
+            `💰 Valor total: R$ ${valorTotal.toFixed(2)}\n\n` + // Adicionado valor total
             `Obrigado por pedir na Pizzaria do Zé! Para novo pedido, digite "menu".`,
         });
 
@@ -405,13 +652,23 @@ async function handleMensagem(sock, msg) {
     const resultado = await calcularDistanciaOSRM(coordenadas, pizzaria);
 
     // Calcula valor total do pedido
-    const saborSelecionado = [...pizzasSalgadas, ...pizzasDoces].find(
-      p => p.rowId === `sabor ${pedido.sabor}`
-    );
+    let precoPizza = 0;
+    if (pedido.isMeioAMeio) {
+        const sabor1Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor1}`);
+        const sabor2Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor2}`);
+        if (sabor1Obj && sabor2Obj) {
+            precoPizza = (sabor1Obj.preco + sabor2Obj.preco) / 2;
+        }
+    } else {
+        const saborSelecionado = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor}`);
+        if (saborSelecionado) {
+            precoPizza = saborSelecionado.preco;
+        }
+    }
+
     const bebidaSelecionada = bebidas.find(
       b => b.rowId === `bebida ${pedido.bebida}`
     );
-    const precoPizza = saborSelecionado ? saborSelecionado.preco : 0;
     const precoBebida = bebidaSelecionada ? bebidaSelecionada.preco : 0;
     const valorTotal = precoPizza + precoBebida;
 
@@ -428,12 +685,21 @@ async function handleMensagem(sock, msg) {
 
     pedido.idPagamento = pagamento.id; // guarda o ID para monitorar
 
-    // Envia resumo
+    // Monta o resumo
+    let resumoPizzaDetalhes = '';
+    if (pedido.isMeioAMeio) {
+        const sabor1Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor1}`);
+        const sabor2Obj = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor2}`);
+        resumoPizzaDetalhes = `🍕 Pizza Meio a Meio:\n   - Sabor 1: ${sabor1Obj ? sabor1Obj.title.replace(/ R\$ .*/, '') : 'Não encontrado'}\n   - Sabor 2: ${sabor2Obj ? sabor2Obj.title.replace(/ R\$ .*/, '') : 'Não encontrado'}`;
+    } else {
+        const saborSelecionado = allPizzas.find(p => p.rowId === `sabor ${pedido.sabor}`);
+        resumoPizzaDetalhes = `🍕 Tipo: ${pedido.tipo}\n🍽️ Sabor: ${saborSelecionado ? saborSelecionado.title.replace(/ R\$ .*/, '') : 'Não encontrado'}`;
+    }
+
     const resumo =
       `📝 *Resumo do seu pedido:*\n` +
-      `🍕 Tipo: ${pedido.tipo}\n` +
-      `🍽️ Sabor: ${pedido.sabor}\n` +
-      `🥤 Bebida: ${pedido.bebida === 'nenhum' ? 'Nenhuma' : pedido.bebida}\n` +
+      `${resumoPizzaDetalhes}\n` +
+      `🥤 Bebida: ${pedido.bebida === 'nenhum' ? 'Nenhuma' : bebidaSelecionada.title.replace(/ R\$ .*/, '')}\n` +
       `📍 Endereço: ${pedido.endereco}\n\n` +
       `💰 Valor total: R$ ${valorTotal.toFixed(2)}`;
 
@@ -478,7 +744,14 @@ async function handleMensagem(sock, msg) {
       pedido.etapa !== 'bebida' &&
       pedido.etapa !== 'bebida_aguardando' &&
       pedido.etapa !== 'finalizado' &&
-      pedido.etapa !== 'aguardando_endereco')
+      pedido.etapa !== 'aguardando_endereco' &&
+      pedido.etapa !== 'meio_a_meio_tipo' &&         // Novas etapas para meio a meio
+      pedido.etapa !== 'meio_a_meio_aguardando_tipo' &&
+      pedido.etapa !== 'meio_a_meio_sabor1' &&
+      pedido.etapa !== 'meio_a_meio_aguardando_sabor1' &&
+      pedido.etapa !== 'meio_a_meio_sabor2' &&
+      pedido.etapa !== 'meio_a_meio_aguardando_sabor2'
+    )
   ) {
     if (!pedido.jaOrientouMenu) {
       await sock.sendMessage(from, {
